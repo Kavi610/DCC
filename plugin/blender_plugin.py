@@ -1,106 +1,68 @@
-# bl_info = {
-#     "name": "DCC Integration Plugin",
-#     "author": "Your Name",
-#     "version": (1, 0),
-#     "blender": (2, 80, 0),
-#     "location": "View3D > Sidebar > DCC Plugin",
-#     "description": "Plugin to send object transforms to a server.",
-#     "category": "Object",
-# }
-
 import bpy
 import requests
-from bpy.props import EnumProperty, PointerProperty
 
-# Function to return endpoint options for dropdown
-def get_endpoints(self, context):
-    return [
-        ('/transform', "Transform", "Send all transforms"),
-        ('/translation', "Translation", "Send position only"),
-        ('/rotation', "Rotation", "Send rotation only"),
-        ('/scale', "Scale", "Send scale only"),
-        ('/file-path', "File Path", "Get the DCC file's path"),
-    ]
+bl_info = {
+    "name": "DCC Plugin",
+    "author": "Kaviyarasu",
+    "version": (1, 0, 0),
+    "blender": (4, 3, 0),
+    "location": "View3D > Sidebar > DCC Plugin",
+    "description": "A plugin to send object transforms to a Flask server",
+    "warning": "",
+    "wiki_url": "",
+    "category": "Object",
+}
 
-class DCCPluginProperties(bpy.types.PropertyGroup):
-    endpoint: EnumProperty(
-        name="Endpoint",
-        description="Select server function",
-        items=get_endpoints,
-        default='/transform'
-    )
+SERVER_URL = "http://127.0.0.1:5000"
 
-class OBJECT_OT_SubmitTransform(bpy.types.Operator):
-    """Submit the selected object's transform data to the server"""
-    bl_idname = "object.submit_transform"
-    bl_label = "Submit Transform Data"
+class TransformOperator(bpy.types.Operator):
+    bl_idname = "object.send_transform"
+    bl_label = "Send Transform to Server"
 
     def execute(self, context):
-        obj = context.active_object
-        if obj is None:
-            self.report({'ERROR'}, "No active object selected!")
-            return {'CANCELLED'}
-
-        # Gather transform data
-        transform_data = {
-            "name": obj.name,
-            "location": list(obj.location),
-            "rotation_euler": list(obj.rotation_euler),
-            "scale": list(obj.scale)
-        }
-
-        # Get selected endpoint
-        endpoint = context.scene.dcc_plugin_props.endpoint
-        url = f"http://localhost:5000{endpoint}"
-
-        try:
-            response = requests.post(url, json=transform_data)
-            response.raise_for_status()
-            self.report({'INFO'}, f"Server Response: {response.status_code}")
-        except requests.exceptions.RequestException as e:
-            self.report({'ERROR'}, f"Request failed: {e}")
-            return {'CANCELLED'}
-
+        obj = context.object
+        if obj:
+            # Collect object transform data (location, rotation, scale)
+            data = {
+                "name": obj.name,
+                "position": list(obj.location),
+                "rotation": list(obj.rotation_euler),
+                "scale": list(obj.scale),
+            }
+            print(f"Sending data: {data}")  # Debugging line to check the data
+            # Send the transform data to the Flask server via POST request
+            response = requests.post(f"{SERVER_URL}/transform", json=data)
+            self.report({'INFO'}, f"Response: {response.status_code}")
+            if response.status_code == 200:
+                self.report({'INFO'}, f"Data sent successfully: {response.json()}")
+            else:
+                self.report({'ERROR'}, f"Error sending data: {response.text}")
         return {'FINISHED'}
 
-class VIEW3D_PT_DCCPanel(bpy.types.Panel):
-    """Creates a Panel in the 3D Viewport Sidebar"""
-    bl_label = "DCC Integration Plugin"
-    bl_idname = "VIEW3D_PT_dcc_plugin"
+class OBJECT_PT_CustomPanel(bpy.types.Panel):
+    bl_label = "DCC Plugin"
+    bl_idname = "OBJECT_PT_custom_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'DCC Plugin'
 
     def draw(self, context):
         layout = self.layout
-        scene = context.scene
-        props = scene.dcc_plugin_props
-
-        obj = context.active_object
+        obj = context.object
         if obj:
-            layout.label(text=f"Active Object: {obj.name}")
-            col = layout.column()
-            col.prop(obj, "location")
-            col.prop(obj, "rotation_euler", text="Rotation")
-            col.prop(obj, "scale")
-        else:
-            layout.label(text="No active object selected.")
-
-        layout.prop(props, "endpoint")
-        layout.operator("object.submit_transform")
-
-# Registration
-classes = (DCCPluginProperties, OBJECT_OT_SubmitTransform, VIEW3D_PT_DCCPanel)
+            # Add fields for location, rotation, and scale
+            layout.prop(obj, "location")
+            layout.prop(obj, "rotation_euler")
+            layout.prop(obj, "scale")
+            layout.operator("object.send_transform")
 
 def register():
-    for cls in classes:
-        bpy.utils.register_class(cls)
-    bpy.types.Scene.dcc_plugin_props = PointerProperty(type=DCCPluginProperties)
+    bpy.utils.register_class(TransformOperator)
+    bpy.utils.register_class(OBJECT_PT_CustomPanel)
 
 def unregister():
-    for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
-    del bpy.types.Scene.dcc_plugin_props
+    bpy.utils.unregister_class(TransformOperator)
+    bpy.utils.unregister_class(OBJECT_PT_CustomPanel)
 
 if __name__ == "__main__":
     register()
