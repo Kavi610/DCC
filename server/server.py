@@ -1,37 +1,62 @@
-import time
+from flask import Flask, request, jsonify
 import sqlite3
-from flask import Flask, request, jsonify, abort
-import logging
+import time
 
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
-DATABASE = "inventory.db"
 
-def init_db():
-    """Initializes the SQLite database if it doesn't exist."""
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS inventory (name TEXT PRIMARY KEY, quantity INTEGER)''')
+# Database connection function
+def connect_db():
+    return sqlite3.connect("inventory.db")
+
+# Function to set up the database and create the table if it doesn't exist
+def setup_database():
+    conn = sqlite3.connect("inventory.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventory (
+            name TEXT PRIMARY KEY,
+            quantity INTEGER
+        )
+    """)
     conn.commit()
     conn.close()
 
-init_db()
-
-def delay_response():
-    """Introduce a 10-second delay."""
-    time.sleep(10)
-
-@app.before_request
-def log_request():
-    app.logger.info("Received %s request for %s with data: %s", request.method, request.path, request.get_json() or request.args)
-
 @app.route('/transform', methods=['POST'])
 def transform():
-    delay_response()
-    data = request.get_json()
-    if not data:
-        abort(400, description="No JSON data provided")
-    return jsonify({"status": "Transform data received", "data": data}), 200
+    if request.is_json:
+        data = request.get_json()  # Get the JSON data
+        print(f"Received data: {data}")  # Debugging line to check the data
+        if data:
+            return jsonify({"message": "Transform data received successfully!", "data": data}), 200
+        else:
+            return jsonify({"error": "Empty data received"}), 400
+    else:
+        return jsonify({"error": "Expected JSON data"}), 415
 
-if __name__ == '__main__':
+
+# Route to add an item to the inventory
+@app.route("/add-item", methods=["POST"])
+def add_item():
+    data = request.json
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO inventory (name, quantity) VALUES (?, ?)", (data["name"], data["quantity"]))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Item added"}), 200
+
+# Route to get all items from the inventory
+@app.route("/get-items", methods=["GET"])
+def get_items():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM inventory")
+    items = [{"name": row[0], "quantity": row[1]} for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(items), 200
+
+# Call the setup_database function to create the table before the app starts
+setup_database()
+
+if __name__ == "__main__":
     app.run(debug=True)
